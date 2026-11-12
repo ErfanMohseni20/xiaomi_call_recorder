@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CallRec — Xiaomi call recorder over WebUSB</title>
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --card:#1a1d24; --fg:#e6e8ec; --muted:#9aa0aa; --accent:#3b82f6; --ok:#22c55e; --off:#ef4444; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid #2a2e37; border-radius:12px; padding:16px; margin-bottom:16px; }
+  button, select { font:inherit; border-radius:8px; border:1px solid #3a3f4b; background:#242832; color:var(--fg); padding:9px 14px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  #state { font-weight:600; padding:2px 8px; border-radius:6px; font-size:13px; }
+  #state.ok { color:var(--ok); } #state.off { color:var(--off); }
+  #log { background:#0b0d11; border-radius:8px; padding:10px; height:200px; overflow:auto; white-space:pre-wrap; font:12px/1.5 ui-monospace,monospace; color:#cbd2dc; }
+  .file { display:flex; align-items:center; gap:12px; padding:6px 0; flex-wrap:wrap; }
+  .file a { color:var(--accent); text-decoration:none; }
+  .steps { color:var(--muted); font-size:13px; padding-left:18px; margin:8px 0 0; }
+  label { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>CallRec</h1>
+  <p class="sub">Record Xiaomi calls straight from the browser over USB. No installed app, no Shizuku — it runs a small helper on the phone through ADB.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="connect" class="primary">Connect phone</button>
+      <span>Status: <span id="state" class="off">not connected</span></span>
+    </div>
+    <ol class="steps">
+      <li>On the phone: Developer options → turn on <b>USB debugging</b> and <b>USB debugging (Security settings)</b>.</li>
+      <li>Plug in by USB, click Connect, and accept the "Allow USB debugging" prompt.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="setup">1 · Install helper</button>
+      <label>Mode <select id="mode">
+        <option value="call">Mixed (mono)</option>
+        <option value="split">Stereo (you = left, them = right)</option>
+      </select></label>
+      <label><input type="checkbox" id="button" checked /> REC button during calls</label>
+      <label><input type="checkbox" id="auto" checked /> Record every call automatically</label>
+      <button id="start" class="primary">2 · Start watching</button>
+      <button id="stop">Stop</button>
+      <button id="status">Status</button>
+      <button id="pull">Load recordings</button>
+    </div>
+    <p class="steps">After "Start watching" the phone records every call on its own — you can unplug it. Recordings are kept until reboot or Stop. "Load recordings" plays and downloads them here.</p>
+    <p class="steps">With the REC button on, a floating button sits on the screen for the length of each call: tap it to pause or resume the recording, drag it out of the way (it remembers where). Untick "Record every call automatically" to record only the calls where you tap it. Change these, then Stop and Start watching again.</p>
+  </div>
+
+  <div class="card" id="files"></div>
+
+  <div class="card">
+    <div id="log"></div>
+  </div>
+</main>
+<script type="module" src="app.bundle.js"></script>
+</body>
+</html>
