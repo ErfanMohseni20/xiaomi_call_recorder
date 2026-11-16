@@ -18,6 +18,7 @@ call on the phone itself. The approach (open the privileged `VOICE_CALL` /
 | `web/src/daemon.js` | Helper state on the phone; restarts the helper on connect when a reboot killed it. |
 | `web/payload/` | Built artifacts the page serves: `callrec.dex`, `callrecd-arm64`, `callrecd-arm`. |
 | `cmd/callrec-web/` | Go web server for the page: one binary with `web/` embedded. |
+| `php/` | The same web server in PHP, for hosts that run PHP rather than a Go binary. |
 
 ## Build
 
@@ -30,6 +31,27 @@ cd web && npm test                       # phone logic against a simulated phone
 go test ./...
 go build -o callrec-web ./cmd/callrec-web  # the local server embeds web/, rebuild it after the bundle
 ```
+
+## PHP version
+
+`php/index.php` is `cmd/callrec-web` in PHP: it serves the same page and payload with the same
+routes, redirects, headers (`Cache-Control: no-store` on everything), byte ranges and errors.
+Only the web server is PHP. The page is JavaScript and the payload runs on the phone, where there
+is no PHP, so the PHP version serves the very files the Go binary embeds and needs no Go on the host.
+
+```bash
+php -S 127.0.0.1:8084 php/index.php   # local, straight from the source tree
+php/build.sh                          # -> php/dist/, the counterpart of `go build`
+```
+
+Upload what is in `php/dist/` (`index.php`, `.htaccess`, `index.html`, `app.bundle.js`, `payload/`)
+to the site root or any subfolder of an HTTPS site; WebUSB does not work over plain HTTP. Run
+`php/build.sh` again after every `web/build.sh`. Needs PHP 7.2+; on Apache/LiteSpeed the
+`.htaccess` sends every request through `index.php` (mod_rewrite).
+
+Checked against the Go server with the same 32 requests under PHP 8.3 and 7.2 (built-in server,
+Apache at the root and in a subfolder): every real route answers the same, byte for byte. The only
+differences are unclean paths such as `/../x`, which Go redirects and PHP or Apache refuse.
 
 ## Use
 

@@ -1,0 +1,7 @@
+# Every request goes through index.php, so each response carries the same headers as the
+# Go server (no-store: a rebuilt page or payload is never served stale from a cache).
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^index\.php$ - [L]
+RewriteRule ^ index.php [L]
+</IfModule>
