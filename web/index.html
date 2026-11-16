@@ -24,6 +24,9 @@
   .file a { color:var(--accent); text-decoration:none; }
   .steps { color:var(--muted); font-size:13px; padding-left:18px; margin:8px 0 0; }
   label { color:var(--muted); font-size:13px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  #notice { border-color:var(--accent); font-weight:600; }
+  #nativeState { margin-bottom:10px; }
 </style>
 </head>
 <body>
@@ -42,7 +45,20 @@
     </ol>
   </div>
 
+  <div class="card" id="notice" hidden></div>
+
   <div class="card">
+    <h2>Permanent recording (survives restarts)</h2>
+    <p class="steps" id="nativeState"></p>
+    <div class="row">
+      <button id="nativeOn" class="primary">Turn on permanent recording</button>
+      <button id="nativeOff">Undo</button>
+    </div>
+    <p class="steps">Makes Xiaomi's own Phone app, which has a built-in call recorder, the phone app of this phone. It is set once and keeps working after the phone restarts, and it does not need USB debugging to stay on. Only phones whose ROM still includes that app can use it (most Global ROMs; not EU/EEA ones). Google Phone stays installed; Undo puts everything back as it was. Recordings are saved on the phone in MIUI/sound_recorder/call_rec.</p>
+  </div>
+
+  <div class="card">
+    <h2>Recording helper (any HyperOS phone)</h2>
     <div class="row">
       <button id="setup">1 · Install helper</button>
       <label>Mode <select id="mode">
@@ -56,7 +72,8 @@
       <button id="status">Status</button>
       <button id="pull">Load recordings</button>
     </div>
-    <p class="steps">After "Start watching" the phone records every call on its own — you can unplug it. Recordings are kept until reboot or Stop. "Load recordings" plays and downloads them here.</p>
+    <p class="steps">After "Start watching" the phone records every call on its own — you can unplug it. It keeps recording until the phone restarts or you press Stop. "Load recordings" plays and downloads them here.</p>
+    <p class="steps"><b>The helper stops when the phone restarts, and when USB debugging or Developer options is turned off.</b> Then plug the phone in, open this page and click Connect: recording starts again by itself.</p>
     <p class="steps">With the REC button on, a floating button sits on the screen for the length of each call: tap it to pause or resume the recording, drag it out of the way (it remembers where). Untick "Record every call automatically" to record only the calls where you tap it. Change these, then Stop and Start watching again.</p>
   </div>
 

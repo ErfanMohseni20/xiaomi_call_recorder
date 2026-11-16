@@ -4,15 +4,17 @@ import { Adb, AdbDaemonTransport } from "@yume-chan/adb";
 import { AdbDaemonWebUsbDeviceManager } from "@yume-chan/adb-daemon-webusb";
 import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
 import { ReadableStream } from "@yume-chan/stream-extra";
+import { HOME, MISSING, RUNNING, DIED, daemonState, savedFlags, startDaemon, stopDaemon } from "./daemon.js";
+import { nativeStatus, enableNative, revertNative } from "./native.js";
 
-const HOME = "/data/local/tmp/callrec";
 const credStore = new AdbWebCredentialStore("callrec-web");
 const manager = AdbDaemonWebUsbDeviceManager.BROWSER;
 
 let adb = null; // connected Adb instance
 
 const els = {};
-for (const id of ["connect", "setup", "start", "stop", "status", "pull", "mode", "button", "auto", "log", "state", "files"]) {
+for (const id of ["connect", "setup", "start", "stop", "status", "pull", "mode", "button", "auto", "log", "state", "files",
+  "notice", "nativeOn", "nativeOff", "nativeState"]) {
   els[id] = document.getElementById(id);
 }
 
@@ -28,6 +30,66 @@ function setConnected(on) {
   for (const id of ["setup", "start", "stop", "status", "pull", "mode", "button"]) els[id].disabled = !on;
   els.connect.textContent = on ? "Disconnect" : "Connect phone";
   syncAuto();
+  if (!on) { showNative(null); notice(""); }
+}
+
+// notice is the one line a non-technical user should read; the log is for details.
+function notice(text) {
+  els.notice.textContent = text;
+  els.notice.hidden = !text;
+}
+
+// showNative reflects a nativeStatus() result (null = no phone) in the permanent-recording card.
+function showNative(st) {
+  els.nativeOn.disabled = !st || !st.supported || st.enabled;
+  els.nativeOff.disabled = !st || !st.supported;
+  els.nativeState.textContent = !st ? "Connect the phone to see whether it supports this."
+    : st.enabled ? "On. Xiaomi's own Phone app records the calls, also after the phone restarts. " + AUTO_HINT(st)
+    : st.supported ? "This phone supports it."
+    : "Not available on this phone: its ROM (an EU/EEA build) does not include Xiaomi's Phone app. Use the helper below.";
+}
+
+// The helper dies with adbd: on a reboot, and when USB debugging or Developer options is switched off.
+// The recorder only records by itself once this switch in the Phone app is on.
+const AUTO_STEP = "open the Phone app → Settings → Call recording and turn on automatic recording";
+const AUTO_HINT = (st) => st.autoRecord ? "Automatic recording is on." : "Automatic recording is OFF: " + AUTO_STEP + ".";
+
+const AFTER_RESTART = "It stops when the phone restarts or USB debugging is turned off. " +
+  "When that happens: plug the phone in, open this page and click Connect. Recording starts again by itself.";
+
+// refresh reads the phone's state on connect. If the helper was killed it is
+// started again with the flags of its last start, so reconnecting is all a user has to do.
+async function refresh() {
+  const st = await nativeStatus(shell);
+  showNative(st);
+  if (st.enabled) {
+    notice(st.autoRecord
+      ? "Permanent recording is on and every call is recorded automatically. Nothing to do here."
+      : "Permanent recording is on, but calls are not recorded automatically yet. On the phone, " + AUTO_STEP + ".");
+    return;
+  }
+  let d = await daemonState(shell);
+  const resumed = d === DIED;
+  if (resumed) {
+    const opts = await savedFlags(shell);
+    els.mode.value = opts.mode;
+    els.button.checked = opts.button;
+    els.auto.checked = opts.auto;
+    syncAuto();
+    log("recording had stopped (phone restarted or USB debugging turned off). Starting it again ...");
+    log(await startDaemon(shell, opts));
+    d = await daemonState(shell);
+  }
+  const helper = d !== RUNNING ? "" : resumed
+    ? "Recording had stopped. It is running again. "
+    : "Recording is active. ";
+  if (st.supported) {
+    notice(helper + "This phone can record permanently: turn on \"Permanent recording\" below and you never need to reconnect, even with USB debugging off.");
+  } else if (helper) {
+    notice(helper + AFTER_RESTART);
+  } else {
+    notice("Recording is off. Install the helper and press Start watching. " + AFTER_RESTART);
+  }
 }
 
 // Without the in-call button nothing could start a paused recording, so auto is forced on.
@@ -108,7 +170,9 @@ els.connect.onclick = async () => {
     if (brand.toLowerCase() !== "xiaomi" || !hyperos) {
       for (const id of ["setup", "start", "mode", "button", "auto"]) els[id].disabled = true;
       log("Not supported: this tool only works on Xiaomi phones running HyperOS (not MIUI).");
+      return;
     }
+    await refresh();
   } catch (e) {
     log("connect failed: " + e.message);
   }
@@ -130,14 +194,46 @@ els.setup.onclick = async () => {
 };
 
 els.start.onclick = async () => {
-  const mode = els.mode.value;
-  const flags = `-auto=${els.auto.checked} -button=${els.button.checked}`;
-  log(await shell(`${HOME}/callrecd -mode ${mode} ${flags} start`));
+  log(await startDaemon(shell, { mode: els.mode.value, auto: els.auto.checked, button: els.button.checked }));
   log("watching for calls. You can unplug the phone; it keeps recording until reboot or Stop.");
 };
 
 els.stop.onclick = async () => {
-  log(await shell(`${HOME}/callrecd stop`));
+  log(await stopDaemon(shell));
+};
+
+els.nativeOn.onclick = async () => {
+  if (!confirm("This makes Xiaomi's own Phone app the phone app of this phone; it has a built-in call recorder. " +
+    "Google Phone stays installed, and contacts and call history stay. You can undo it here later.\n\nContinue?")) return;
+  els.nativeOn.disabled = els.nativeOff.disabled = true;
+  try {
+    const st = await enableNative(shell, log);
+    // One recorder is enough; this also keeps the next connect from resuming the helper.
+    if ((await daemonState(shell)) !== MISSING) log("helper: " + await stopDaemon(shell));
+    showNative(st);
+    const next = st.autoRecord ? "Every call is recorded automatically."
+      : "One step left on the phone: " + AUTO_STEP + ". If that setting is missing, restart the phone.";
+    notice(st.enabled ? "Permanent recording is set up. " + next
+      : "Almost done. On the phone choose Xiaomi's Phone app in Settings → Apps → Default apps → Phone app. " + next);
+    log(st.enabled ? "permanent recording set up" : "set up, but the default phone app could not be changed from here");
+  } catch (e) {
+    log("permanent recording failed: " + e.message);
+    showNative(await nativeStatus(shell).catch(() => null));
+  }
+};
+
+els.nativeOff.onclick = async () => {
+  els.nativeOn.disabled = els.nativeOff.disabled = true;
+  try {
+    const st = await revertNative(shell, log);
+    showNative(st);
+    notice(st.enabled ? "Could not switch back to the earlier phone app. Choose it on the phone in Settings → Apps → Default apps → Phone app, then press Undo again."
+      : "Permanent recording is off and the phone app is as it was before.");
+    log(st.enabled ? "undo incomplete" : "reverted");
+  } catch (e) {
+    log("undo failed: " + e.message);
+    showNative(await nativeStatus(shell).catch(() => null));
+  }
 };
 
 els.status.onclick = async () => {
