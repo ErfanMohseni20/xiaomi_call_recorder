@@ -11,7 +11,7 @@ const BASELINE = "/data/local/tmp/callrec/native.baseline";
 
 // fakePhone answers the lines native.js sends, like a phone would.
 // all = packages on the ROM, active = installed for user 0.
-function fakePhone({ all, active, dialer, fail = [], roleCmdWorks = true, autoRecord = null, files = {} }) {
+function fakePhone({ all, active, dialer, fail = [], roleCmdWorks = true, telecomWorks = true, autoRecord = null, files = {} }) {
   const s = { all: new Set(all), active: new Set(active), dialer, cmds: [], files: { ...files } };
   const list = (set) => [...set].map((p) => `package:${p}\n`).join("");
   const shell = async (cmd) => {
@@ -36,12 +36,12 @@ function fakePhone({ all, active, dialer, fail = [], roleCmdWorks = true, autoRe
       return "";
     }
     if ((m = /^cmd telecom set-default-dialer (\S+)$/.exec(cmd))) {
-      if (s.active.has(m[1])) s.dialer = m[1];
+      if (telecomWorks && s.active.has(m[1])) s.dialer = m[1];
       return "";
     }
     if (cmd === "settings get system button_auto_record_call") return autoRecord + "\n";
-    if ((m = /^mkdir -p \S+; \[ -f (\S+) \] \|\| echo '([^']*)' > \1$/.exec(cmd))) {
-      if (!(m[1] in s.files)) s.files[m[1]] = m[2] + "\n";
+    if ((m = /^mkdir -p \S+; echo '([^']*)' > (\S+)$/.exec(cmd))) {
+      s.files[m[2]] = m[1] + "\n";
       return "";
     }
     if ((m = /^cat (\S+) 2>\/dev\/null$/.exec(cmd))) return s.files[m[1]] ?? "";
@@ -120,6 +120,45 @@ test("revert after enable puts the phone back exactly as it was", async () => {
   assert.equal(s.dialer, GOOGLE_DIALER);
   assert.deepEqual(sorted(s.active), before);
   assert.deepEqual(s.files, {});
+});
+
+test("with removeGoogle, Google's apps go once the Xiaomi dialer is the phone app, and revert brings them back", async () => {
+  const { s, shell } = globalRom();
+  const before = sorted(s.active);
+  const st = await enableNative(shell, () => {}, { removeGoogle: true });
+  assert.equal(st.enabled, true);
+  assert.deepEqual(sorted(s.active), sorted([XIAOMI_DIALER, XIAOMI_INCALL, "com.android.settings"]));
+  const c = changes(s.cmds);
+  assert.ok(c.indexOf(`cmd role add-role-holder --user 0 ${ROLE} ${XIAOMI_DIALER}`) < c.indexOf(`pm uninstall -k --user 0 ${GOOGLE_DIALER}`));
+  assert.equal(s.files[BASELINE],
+    `dialer=${GOOGLE_DIALER} restored=${XIAOMI_DIALER},${XIAOMI_INCALL} removed=${REGION_OVERLAY},${GOOGLE_DIALER},${GOOGLE_CONTACTS}\n`);
+
+  await revertNative(shell);
+  assert.deepEqual(sorted(s.active), before);
+  assert.equal(s.dialer, GOOGLE_DIALER);
+  assert.deepEqual(s.files, {});
+});
+
+test("removeGoogle can be added to a phone that is already switched, and revert still restores everything", async () => {
+  const { s, shell } = globalRom();
+  const before = sorted(s.active);
+  await enableNative(shell);
+  await enableNative(shell, () => {}, { removeGoogle: true });
+  assert.ok(!s.active.has(GOOGLE_DIALER) && !s.active.has(GOOGLE_CONTACTS));
+  // The first run's phone app and restored packages are kept; only the removals grow.
+  assert.equal(s.files[BASELINE],
+    `dialer=${GOOGLE_DIALER} restored=${XIAOMI_DIALER},${XIAOMI_INCALL} removed=${REGION_OVERLAY},${GOOGLE_DIALER},${GOOGLE_CONTACTS}\n`);
+  await revertNative(shell);
+  assert.deepEqual(sorted(s.active), before);
+  assert.equal(s.dialer, GOOGLE_DIALER);
+});
+
+test("removeGoogle never removes Google Phone while it is still the phone app", async () => {
+  const { s, shell } = globalRom({ roleCmdWorks: false, telecomWorks: false });
+  const st = await enableNative(shell, () => {}, { removeGoogle: true });
+  assert.equal(st.enabled, false);
+  assert.equal(s.dialer, GOOGLE_DIALER);
+  assert.ok(s.active.has(GOOGLE_DIALER) && s.active.has(GOOGLE_CONTACTS));
 });
 
 test("enable twice is a no-op and keeps the first baseline", async () => {

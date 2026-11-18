@@ -7,11 +7,13 @@
 //
 // Unlike the callrecd helper this survives a reboot and needs no USB debugging: the
 // recorder is a system app. Verified on a Redmi Note 13 Pro 4G (HyperOS 3, Android 16),
-// including after a reboot. Google Phone and Google Contacts stay installed; the XDA
-// guide removes them, but recording works with them in place.
+// including after a reboot, with Google Phone and Google Contacts still installed. They
+// stay unless the caller asks for them to go (removeGoogle, what the XDA guide does).
+// On the test phones (HyperOS 1, MIUI 12.5) `pm install-existing` and `pm uninstall
+// --user 0` worked with MIUI's "USB debugging (Security settings)" switched off.
 // It only works where the ROM still ships the Xiaomi dialer; EEA/EU builds do not.
 //
-// The removal uses `pm uninstall -k --user 0`, so the APK stays on the ROM. What enable
+// Removals use `pm uninstall -k --user 0`, so the APKs stays on the ROM. What enable
 // changed is written to the phone, and revert undoes exactly that.
 //
 // Every function takes shell(cmd) -> Promise<string output>. The WebUSB shell gives
@@ -109,24 +111,37 @@ export function parseBaseline(text) {
   const m = /^dialer=([A-Za-z0-9._]*) restored=([A-Za-z0-9._,]*) removed=([A-Za-z0-9._,]*)$/.exec(text.trim());
   if (!m) return null;
   const only = (s, allowed) => s.split(",").filter((p) => allowed.includes(p));
-  return { dialer: m[1], restored: only(m[2], [XIAOMI_DIALER, XIAOMI_INCALL]), removed: only(m[3], [REGION_OVERLAY]) };
+  return {
+    dialer: m[1],
+    restored: only(m[2], [XIAOMI_DIALER, XIAOMI_INCALL]),
+    removed: only(m[3], [REGION_OVERLAY, GOOGLE_DIALER, GOOGLE_CONTACTS]),
+  };
 }
 
 // enableNative switches the phone to the Xiaomi dialer and its recorder. The dialer is
-// brought back and confirmed before anything else changes. Returns the status afterwards.
-export async function enableNative(shell, log = () => {}) {
+// brought back and confirmed before anything else changes. With removeGoogle, Google Phone
+// and Google Contacts are removed too, but only once the Xiaomi dialer is the phone app.
+// It can be run again on a phone that is already switched, to add that removal.
+// Returns the status afterwards.
+export async function enableNative(shell, log = () => {}, { removeGoogle = false } = {}) {
   let st = await pkgStates(shell);
   for (const p of [XIAOMI_DIALER, XIAOMI_INCALL]) {
     if (st[p] === ABSENT) throw new Error(`${p} is not on this ROM (EEA/EU build). Nothing was changed.`);
   }
   const dialer = await defaultDialer(shell);
-  const baseline = formatBaseline({
-    dialer: /^[A-Za-z0-9._]+$/.test(dialer) ? dialer : "",
-    restored: [XIAOMI_DIALER, XIAOMI_INCALL].filter((p) => st[p] === REMOVED),
-    removed: [REGION_OVERLAY].filter((p) => st[p] === INSTALLED),
-  });
-  // An existing file is the real starting point of an earlier, unfinished run: keep it.
-  await shell(`mkdir -p ${HOME}; [ -f ${BASELINE_FILE} ] || echo '${baseline}' > ${BASELINE_FILE}`);
+  const removing = [REGION_OVERLAY, ...(removeGoogle ? [GOOGLE_DIALER, GOOGLE_CONTACTS] : [])]
+    .filter((p) => st[p] === INSTALLED);
+  // An existing baseline is the real starting point of an earlier run: keep its phone app
+  // and restored packages, and only add what this run removes on top.
+  const prev = parseBaseline(await shell(`cat ${BASELINE_FILE} 2>/dev/null`));
+  const baseline = formatBaseline(prev
+    ? { ...prev, removed: [...new Set([...prev.removed, ...removing])] }
+    : {
+      dialer: /^[A-Za-z0-9._]+$/.test(dialer) ? dialer : "",
+      restored: [XIAOMI_DIALER, XIAOMI_INCALL].filter((p) => st[p] === REMOVED),
+      removed: removing,
+    });
+  await shell(`mkdir -p ${HOME}; echo '${baseline}' > ${BASELINE_FILE}`);
 
   await apply(shell, log, "restore", XIAOMI_DIALER, st[XIAOMI_DIALER]);
   await apply(shell, log, "restore", XIAOMI_INCALL, st[XIAOMI_INCALL]);
@@ -134,13 +149,21 @@ export async function enableNative(shell, log = () => {}) {
   if (st[XIAOMI_DIALER] !== INSTALLED || st[XIAOMI_INCALL] !== INSTALLED) {
     throw new Error("the Xiaomi dialer did not come back. The phone app was not changed.");
   }
-  await setDialer(shell, XIAOMI_DIALER);
+  const phoneApp = await setDialer(shell, XIAOMI_DIALER);
   await apply(shell, log, "remove", REGION_OVERLAY, st[REGION_OVERLAY]);
+  if (removeGoogle) {
+    if (phoneApp === XIAOMI_DIALER) {
+      for (const p of [GOOGLE_DIALER, GOOGLE_CONTACTS]) await apply(shell, log, "remove", p, st[p]);
+    } else {
+      log("Google Phone was left in place: the Xiaomi dialer is not the phone app yet");
+    }
+  }
   return nativeStatus(shell);
 }
 
-// revertNative undoes enableNative: the overlay comes back, the earlier phone app takes
-// over again, and the packages enable brought back are removed again. On a phone that
+// revertNative undoes enableNative: the overlay (and Google's apps, if they were removed)
+// come back, the earlier phone app takes over again, and the packages enable brought
+// back are removed again. On a phone that
 // was switched by hand (no baseline file; the XDA commands also remove Google's apps) it
 // restores the overlay and Google's apps and leaves the Xiaomi dialer installed.
 export async function revertNative(shell, log = () => {}) {

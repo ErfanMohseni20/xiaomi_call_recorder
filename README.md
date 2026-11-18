@@ -49,11 +49,18 @@ to the site root or any subfolder of an HTTPS site; WebUSB does not work over pl
 `php/build.sh` again after every `web/build.sh`. Needs PHP 7.2+; on Apache/LiteSpeed the
 `.htaccess` sends every request through `index.php` (mod_rewrite).
 
-Checked against the Go server with the same 32 requests under PHP 8.3 and 7.2 (built-in server,
-Apache at the root and in a subfolder): every real route answers the same, byte for byte. The only
-differences are unclean paths such as `/../x`, which Go redirects and PHP or Apache refuse.
+Checked against the Go server with the same requests under PHP 7.2 (built-in server) and PHP 8.3
+(Apache, at the root and in a subfolder): the page, the bundle, the payload, its listing, byte
+ranges and errors answer the same, byte for byte. What differs is what Apache answers itself before
+PHP runs, none of which the page asks for: `/payload` without the slash (redirects to the same
+place, with an absolute URL), `/.htaccess` (403 rather than 404), and unclean paths such as `/../x`,
+which Go redirects and PHP or Apache refuse.
 
 ## Use
+
+The page explains both methods in Persian and English (switch at the top, Persian first); buttons and live
+messages stay in English.
+
 
 1. Serve `web/` over HTTPS (or `localhost`) — WebUSB needs a secure context and desktop Chrome/Edge.
 2. On the phone: Developer options → **USB debugging** and **USB debugging (Security settings)** on.
@@ -74,8 +81,11 @@ The page checks the phone on connect and says which one applies.
   then turns on automatic recording in the Phone app → Settings → Call recording (it is
   `button_auto_record_call` in `Settings.System`; the page reads it and says whether it is on).
   Recordings land in `/sdcard/MIUI/sound_recorder/call_rec/*.mp3`.
-  Unlike the XDA guide the page keeps Google Phone and Google Contacts: recording works with them
-  installed. What it changed is written to `native.baseline` on the phone and *Undo* reverts
+  Unlike the XDA guide the page keeps Google Phone and Google Contacts by default: recording works
+  with them installed. Ticking "Also remove Google Phone and Google Contacts" removes them as the
+  guide does (only after the Xiaomi dialer is confirmed as the phone app), also on a phone that is
+  already switched. On the test phones (HyperOS 1, MIUI 12.5) `pm install-existing` and
+  `pm uninstall --user 0` worked with MIUI's "USB debugging (Security settings)" off. What it changed is written to `native.baseline` on the phone and *Undo* reverts
   exactly that. It needs a ROM that still ships the Xiaomi dialer: Global builds do, EEA/EU builds
   do not. Verified by hand on a Redmi Note 13 Pro 4G (emerald_global, HyperOS 3, Android 16):
   recorded before and after a reboot, no restart needed to switch it on.
@@ -102,8 +112,11 @@ each call (an overlay window; the shell UID holds `SYSTEM_ALERT_WINDOW`,
 - Drag it anywhere; the spot is saved in `/data/local/tmp/callrec/button.pos`.
 - Daemon flags: `-button=false` hides it (record every call, as before); `-auto=false` starts each
   call paused, so only calls where you tap the button get recorded. The page has a checkbox for each.
-- If the button cannot be shown, the call is still recorded (the helper logs why and carries on).
-  Seen on HyperOS 3 / Android 16 (`IllegalStateException: Unknown pid=… uid=2000` on every call): no button there yet.
+- If the button cannot be shown, the call is still recorded in full, also with `-auto=false`
+  (the helper logs why and carries on).
+- No button on HyperOS 3 / Android 16: every call logs `IllegalStateException: Unknown pid=… uid=2000`.
+  That is WindowManager's `Session` constructor refusing a process ActivityManager does not know,
+  which a shell-started `app_process` always is. Android 14 has no such check.
 - HyperOS quirks handled in `InCallButton.prepare()`: MIUI's floating-window whitelist check in
   `WindowManagerGlobal.addView` (fails for uid 2000), its `FramePredict` booster hook, and the
   system fonts that zygote would normally preload.

@@ -56,10 +56,12 @@ function fail($status, $text, $head)
     send($status, 'text/plain; charset=utf-8', $text . "\n", $head);
 }
 
-function redirect($to)
+function redirect($to, $head)
 {
     header('Location: ' . $to, true, 301);
-    header('Content-Length: 0');
+    if (!$head) { // Go sends no length with a HEAD answer it wrote no body for
+        header('Content-Length: 0');
+    }
     exit;
 }
 
@@ -118,10 +120,10 @@ function parseRange($s, $size)
 
 // FileServer redirects index.html to its folder and a folder to its trailing slash.
 if ($path === '/index.html') {
-    redirect('./');
+    redirect('./', $head);
 }
 if ($path === '/payload') {
-    redirect('payload/');
+    redirect('payload/', $head);
 }
 if ($path === '/' || $path === '/index.php') { // index.php: this script asked for by name
     $path = '/index.html';

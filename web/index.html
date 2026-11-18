@@ -4,6 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>CallRec — Xiaomi call recorder over WebUSB</title>
+<script>
+  // The explanations come in Persian and English; show the one the reader picked last (Persian first).
+  var lang = "fa";
+  try { lang = localStorage.getItem("lang") || lang; } catch (e) {}
+  document.documentElement.dataset.lang = lang === "en" ? "en" : "fa";
+</script>
 <style>
   :root { color-scheme: light dark; --bg:#0f1115; --card:#1a1d24; --fg:#e6e8ec; --muted:#9aa0aa; --accent:#3b82f6; --ok:#22c55e; --off:#ef4444; }
   * { box-sizing: border-box; }
@@ -22,43 +28,97 @@
   #log { background:#0b0d11; border-radius:8px; padding:10px; height:200px; overflow:auto; white-space:pre-wrap; font:12px/1.5 ui-monospace,monospace; color:#cbd2dc; }
   .file { display:flex; align-items:center; gap:12px; padding:6px 0; flex-wrap:wrap; }
   .file a { color:var(--accent); text-decoration:none; }
-  .steps { color:var(--muted); font-size:13px; padding-left:18px; margin:8px 0 0; }
+  .steps { color:var(--muted); font-size:13px; padding-inline-start:18px; margin:8px 0 0; }
   label { color:var(--muted); font-size:13px; }
   h2 { font-size:16px; margin:0 0 8px; }
   #notice { border-color:var(--accent); font-weight:600; }
   #nativeState { margin-bottom:10px; }
+
+  /* Two languages: .t blocks carry lang="fa" or lang="en", and only the chosen one shows. */
+  html[data-lang="fa"] .t[lang="en"], html[data-lang="en"] .t[lang="fa"] { display:none; }
+  [lang="fa"] { direction:rtl; line-height:1.9; font-family:system-ui,Tahoma,sans-serif; }
+  .top { justify-content:space-between; }
+  html[data-lang="fa"] h2 { direction:rtl; }
+  [lang="fa"] b[dir="ltr"] { white-space:nowrap; } /* keep an English button name on one line */
+  .lang button { padding:4px 12px; font-size:13px; }
+  html[data-lang="fa"] .lang [data-set-lang="fa"], html[data-lang="en"] .lang [data-set-lang="en"] { border-color:var(--accent); color:#fff; }
+  .about { border-top:1px solid #2a2e37; margin-top:14px; padding-top:10px; color:var(--muted); font-size:13px; }
+  .about h3 { font-size:13px; margin:0 0 6px; color:var(--fg); }
+  .about ul { margin:0; padding-inline-start:18px; }
+  .about li { margin:5px 0; }
+  .about b, .about code { color:var(--fg); font-weight:600; }
+  .about code { font:12px ui-monospace,monospace; }
 </style>
 </head>
 <body>
 <main>
-  <h1>CallRec</h1>
-  <p class="sub">Record Xiaomi calls straight from the browser over USB. No installed app, no Shizuku — it runs a small helper on the phone through ADB.</p>
+  <div class="row top">
+    <h1>CallRec</h1>
+    <div class="row lang">
+      <button data-set-lang="fa">فارسی</button>
+      <button data-set-lang="en">English</button>
+    </div>
+  </div>
+  <p class="sub t" lang="fa">ضبط مکالمه گوشی شیائومی را از همین صفحه و با کابل USB روشن کنید. لازم نیست برنامه‌ای روی گوشی نصب کنید.</p>
+  <p class="sub t" lang="en">Turn on call recording on your Xiaomi phone from this page, over a USB cable. There is no app to install on the phone.</p>
 
   <div class="card">
     <div class="row">
       <button id="connect" class="primary">Connect phone</button>
       <span>Status: <span id="state" class="off">not connected</span></span>
     </div>
-    <ol class="steps">
-      <li>On the phone: Developer options → turn on <b>USB debugging</b> and <b>USB debugging (Security settings)</b>.</li>
-      <li>Plug in by USB, click Connect, and accept the "Allow USB debugging" prompt.</li>
+    <ol class="steps t" lang="fa">
+      <li>در گوشی به <b dir="ltr">Developer options</b> بروید و <b dir="ltr">USB debugging</b> و <b dir="ltr">USB debugging (Security settings)</b> را روشن کنید.</li>
+      <li>گوشی را با کابل USB وصل کنید، <b dir="ltr">Connect phone</b> را بزنید و پیام <b dir="ltr">Allow USB debugging</b> را روی گوشی تأیید کنید.</li>
+      <li>دو روش برای ضبط هست. بعد از وصل شدن، صفحه خودش می‌گوید گوشی شما کدام را دارد. اگر «ضبط دائمی» برای گوشی شما هست، همان را انتخاب کنید.</li>
+    </ol>
+    <ol class="steps t" lang="en">
+      <li>On the phone, open <b>Developer options</b> and turn on <b>USB debugging</b> and <b>USB debugging (Security settings)</b>.</li>
+      <li>Plug the phone in with a USB cable, press <b>Connect phone</b>, and accept the <b>Allow USB debugging</b> message on the phone.</li>
+      <li>There are two ways to record. Once connected, the page tells you which ones your phone has. If permanent recording is there, pick that one.</li>
     </ol>
   </div>
 
   <div class="card" id="notice" hidden></div>
 
   <div class="card">
-    <h2>Permanent recording (survives restarts)</h2>
+    <h2><span class="t" lang="fa">ضبط دائمی (با ریستارت گوشی از بین نمی‌رود)</span><span class="t" lang="en">Permanent recording (survives restarts)</span></h2>
     <p class="steps" id="nativeState"></p>
     <div class="row">
       <button id="nativeOn" class="primary">Turn on permanent recording</button>
       <button id="nativeOff">Undo</button>
+      <label><input type="checkbox" id="nativeRemove" disabled /> Also remove Google Phone and Google Contacts</label>
     </div>
-    <p class="steps">Makes Xiaomi's own Phone app, which has a built-in call recorder, the phone app of this phone. It is set once and keeps working after the phone restarts, and it does not need USB debugging to stay on. Only phones whose ROM still includes that app can use it (most Global ROMs; not EU/EEA ones). Google Phone stays installed; Undo puts everything back as it was. Recordings are saved on the phone in MIUI/sound_recorder/call_rec.</p>
+    <div class="about t" lang="fa">
+      <h3>قبل از روشن کردن، این‌ها را بدانید</h3>
+      <ul>
+        <li>با این روش برنامه تماس خود شیائومی، برنامه تماس اصلی گوشی می‌شود. ضبط مکالمه داخل همین برنامه است.</li>
+        <li>از این به بعد باید با برنامه تماس شیائومی زنگ بزنید و جواب بدهید، نه با <b dir="ltr">Google Phone</b>. اگر برنامه تماس اصلی را دوباره <b dir="ltr">Google Phone</b> کنید، ضبط هم قطع می‌شود.</li>
+        <li><b dir="ltr">Google Phone</b> و <b dir="ltr">Google Contacts</b> روی گوشی می‌مانند. اگر تیک <b dir="ltr">Also remove Google Phone and Google Contacts</b> را بزنید، این دو برنامه از گوشی برداشته می‌شوند و فقط برنامه شیائومی می‌ماند. خوبی‌اش این است که دیگر کسی نمی‌تواند اشتباهی برنامه تماس را عوض کند و ضبط قطع شود. مخاطب‌ها و تاریخچه تماس‌ها سر جایشان می‌مانند و با <b dir="ltr">Undo</b> هر دو برنامه برمی‌گردند. اگر مطمئن نیستید، تیک را نزنید. اگر ضبط دائمی را قبلاً روشن کرده‌اید، می‌توانید بعداً تیک را بزنید و دوباره دکمه را بزنید.</li>
+        <li>فقط یک بار لازم است این کار را بکنید. بعد از خاموش و روشن شدن گوشی هم ضبط سر جایش است و دیگر لازم نیست <b dir="ltr">USB debugging</b> روشن بماند.</li>
+        <li>بعد از روشن کردن، یک کار روی خود گوشی می‌ماند: برنامه <b dir="ltr">Phone</b> را باز کنید، به <b dir="ltr">Settings</b> و بعد <b dir="ltr">Call recording</b> بروید و ضبط خودکار را روشن کنید. تا این را روشن نکرده‌اید، فقط تماس‌هایی ضبط می‌شود که وسط تماس دکمه <b dir="ltr">Record</b> را بزنید.</li>
+        <li>فایل‌های ضبط‌شده در حافظه گوشی و در پوشه <code dir="ltr">MIUI/sound_recorder/call_rec</code> می‌مانند. دکمه <b dir="ltr">Load recordings</b> این صفحه مال روش دیگر است و این فایل‌ها را نشان نمی‌دهد.</li>
+        <li>این روش روی همه گوشی‌ها نیست. گوشی باید برنامه تماس شیائومی را در سیستمش داشته باشد، که بیشتر مدل‌های جدید با رام Global دارند. اگر بعد از وصل کردن گوشی، بالای دکمه‌ها نوشت <b dir="ltr">Not available on this phone</b>، گوشی شما این روش را ندارد و باید از «ضبط با برنامه کمکی» استفاده کنید.</li>
+        <li>اگر پشیمان شدید، <b dir="ltr">Undo</b> را بزنید تا همه‌چیز مثل قبل شود.</li>
+      </ul>
+    </div>
+    <div class="about t" lang="en">
+      <h3>Good to know before you turn it on</h3>
+      <ul>
+        <li>This makes Xiaomi's own Phone app the main phone app. The call recorder is part of that app.</li>
+        <li>From then on you make and answer calls with Xiaomi's Phone app, not <b>Google Phone</b>. If you set <b>Google Phone</b> as the main phone app again, recording stops too.</li>
+        <li><b>Google Phone</b> and <b>Google Contacts</b> stay on the phone. If you tick <b>Also remove Google Phone and Google Contacts</b>, both are taken off the phone and Xiaomi's app is the only phone app left. The upside is that nobody can switch the phone app back by mistake and stop the recording. Your contacts and call history stay where they are, and <b>Undo</b> brings both apps back. If you are not sure, leave it unticked. If permanent recording is already on, you can tick it later and press the button again.</li>
+        <li>You only do this once. Recording keeps working after the phone restarts, and <b>USB debugging</b> no longer has to stay on.</li>
+        <li>One thing is left to do on the phone itself: open the <b>Phone</b> app, go to <b>Settings</b>, then <b>Call recording</b>, and turn on automatic recording. Until you do, only the calls where you tap <b>Record</b> during the call are saved.</li>
+        <li>Recordings stay on the phone, in the <code>MIUI/sound_recorder/call_rec</code> folder. The <b>Load recordings</b> button on this page belongs to the other method and does not show them.</li>
+        <li>Not every phone has this. The phone needs Xiaomi's Phone app as part of its system, which most recent Global ROM models have. If the line above the buttons says <b>Not available on this phone</b> after you connect, your phone cannot use it and you need the recording helper instead.</li>
+        <li>Changed your mind? Press <b>Undo</b> and the phone goes back to how it was.</li>
+      </ul>
+    </div>
   </div>
 
   <div class="card">
-    <h2>Recording helper (any HyperOS phone)</h2>
+    <h2><span class="t" lang="fa">ضبط با برنامه کمکی (همه گوشی‌های HyperOS)</span><span class="t" lang="en">Recording helper (any HyperOS phone)</span></h2>
     <div class="row">
       <button id="setup">1 · Install helper</button>
       <label>Mode <select id="mode">
@@ -72,9 +132,32 @@
       <button id="status">Status</button>
       <button id="pull">Load recordings</button>
     </div>
-    <p class="steps">After "Start watching" the phone records every call on its own — you can unplug it. It keeps recording until the phone restarts or you press Stop. "Load recordings" plays and downloads them here.</p>
-    <p class="steps"><b>The helper stops when the phone restarts, and when USB debugging or Developer options is turned off.</b> Then plug the phone in, open this page and click Connect: recording starts again by itself.</p>
-    <p class="steps">With the REC button on, a floating button sits on the screen for the length of each call: tap it to pause or resume the recording, drag it out of the way (it remembers where). Untick "Record every call automatically" to record only the calls where you tap it. Change these, then Stop and Start watching again.</p>
+    <div class="about t" lang="fa">
+      <h3>چند نکته که باید بدانید</h3>
+      <ul>
+        <li>بعد از زدن <b dir="ltr">Start watching</b> گوشی خودش تماس‌ها را ضبط می‌کند و می‌توانید کابل را جدا کنید.</li>
+        <li>اگر گوشی خاموش و روشن شود، ضبط هم خاموش می‌شود و خودش برنمی‌گردد. باید دوباره گوشی را با کابل وصل کنید، همین صفحه را باز کنید و <b dir="ltr">Connect phone</b> را بزنید. ضبط خودش دوباره راه می‌افتد.</li>
+        <li><b dir="ltr">USB debugging</b> و <b dir="ltr">Developer options</b> باید روشن بمانند. هر کدام را خاموش کنید ضبط قطع می‌شود. آن‌وقت باید دوباره روشنش کنید و به همین صفحه برگردید. بعضی برنامه‌ها، مثل بعضی برنامه‌های بانکی، می‌خواهند <b dir="ltr">Developer options</b> خاموش باشد. حواستان به این باشد.</li>
+        <li>ضبط‌های قبلی با خاموش شدن گوشی پاک نمی‌شوند. در حافظه گوشی و در پوشه <code dir="ltr">CallRecordings</code> هستند و با <b dir="ltr">Load recordings</b> می‌توانید همین‌جا گوش کنید یا دانلودشان کنید.</li>
+        <li>موقع تماس یک دکمه قرمز <b dir="ltr">REC</b> روی صفحه گوشی می‌آید. با زدنش ضبط متوقف می‌شود و با زدن دوباره ادامه پیدا می‌کند. می‌توانید آن را با انگشت جابه‌جا هم بکنید. اگر تیک <b dir="ltr">Record every call automatically</b> را بردارید، فقط تماس‌هایی ضبط می‌شود که خودتان این دکمه را بزنید.</li>
+        <li>روی HyperOS 3 (اندروید ۱۶) این دکمه نمایش داده نمی‌شود و همه تماس‌ها از اول تا آخر ضبط می‌شوند.</li>
+        <li>فقط تماس‌های معمولی سیم‌کارت ضبط می‌شود. تماس واتس‌اپ، تلگرام و برنامه‌های مشابه ضبط نمی‌شود.</li>
+        <li>اگر گزینه‌های بالا را عوض کردید، یک بار <b dir="ltr">Stop</b> و بعد دوباره <b dir="ltr">Start watching</b> را بزنید.</li>
+      </ul>
+    </div>
+    <div class="about t" lang="en">
+      <h3>A few things to know</h3>
+      <ul>
+        <li>After you press <b>Start watching</b>, the phone records calls by itself and you can unplug the cable.</li>
+        <li>If the phone restarts, recording turns off and does not come back on its own. Plug the phone in again, open this page and press <b>Connect phone</b>. Recording starts again by itself.</li>
+        <li><b>USB debugging</b> and <b>Developer options</b> have to stay on. Turn either one off and recording stops. To get it going again, turn it back on and come back to this page. Some apps, banking apps for example, ask you to turn <b>Developer options</b> off, so keep that in mind.</li>
+        <li>Earlier recordings are not lost when the phone restarts. They stay on the phone in the <code>CallRecordings</code> folder, and <b>Load recordings</b> lets you play or download them here.</li>
+        <li>During a call a red <b>REC</b> button shows on the phone's screen. Tap it to pause the recording and tap again to carry on. You can drag it out of the way. If you untick <b>Record every call automatically</b>, only the calls where you tap this button are recorded.</li>
+        <li>On HyperOS 3 (Android 16) the button does not show, and every call is recorded from start to finish.</li>
+        <li>Only normal SIM calls are recorded. WhatsApp, Telegram and similar app calls are not.</li>
+        <li>If you change the options above, press <b>Stop</b> and then <b>Start watching</b> again.</li>
+      </ul>
+    </div>
   </div>
 
   <div class="card" id="files"></div>
@@ -83,6 +166,14 @@
     <div id="log"></div>
   </div>
 </main>
+<script>
+  for (const b of document.querySelectorAll("[data-set-lang]")) {
+    b.onclick = () => {
+      document.documentElement.dataset.lang = b.dataset.setLang;
+      try { localStorage.setItem("lang", b.dataset.setLang); } catch (e) {}
+    };
+  }
+</script>
 <script type="module" src="app.bundle.js"></script>
 </body>
 </html>

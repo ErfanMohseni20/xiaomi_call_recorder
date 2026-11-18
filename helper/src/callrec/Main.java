@@ -74,6 +74,7 @@ public final class Main {
 
             if (button) {
                 InCallButton.run(); // main looper; returns only if the button fails
+                setRecording(true); // no button, so nothing else could start a paused recording
             }
             capture.join();
         } catch (Throwable t) {

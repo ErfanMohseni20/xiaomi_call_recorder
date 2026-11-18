@@ -5,7 +5,7 @@ import { AdbDaemonWebUsbDeviceManager } from "@yume-chan/adb-daemon-webusb";
 import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
 import { ReadableStream } from "@yume-chan/stream-extra";
 import { HOME, MISSING, RUNNING, DIED, daemonState, savedFlags, startDaemon, stopDaemon } from "./daemon.js";
-import { nativeStatus, enableNative, revertNative } from "./native.js";
+import { nativeStatus, enableNative, revertNative, GOOGLE_DIALER, GOOGLE_CONTACTS, INSTALLED, REMOVED } from "./native.js";
 
 const credStore = new AdbWebCredentialStore("callrec-web");
 const manager = AdbDaemonWebUsbDeviceManager.BROWSER;
@@ -14,7 +14,7 @@ let adb = null; // connected Adb instance
 
 const els = {};
 for (const id of ["connect", "setup", "start", "stop", "status", "pull", "mode", "button", "auto", "log", "state", "files",
-  "notice", "nativeOn", "nativeOff", "nativeState"]) {
+  "notice", "nativeOn", "nativeOff", "nativeState", "nativeRemove"]) {
   els[id] = document.getElementById(id);
 }
 
@@ -40,19 +40,34 @@ function notice(text) {
 }
 
 // showNative reflects a nativeStatus() result (null = no phone) in the permanent-recording card.
+let nativeSt = null; // last nativeStatus() result shown
+
 function showNative(st) {
-  els.nativeOn.disabled = !st || !st.supported || st.enabled;
+  nativeSt = st;
   els.nativeOff.disabled = !st || !st.supported;
+  syncNative();
   els.nativeState.textContent = !st ? "Connect the phone to see whether it supports this."
-    : st.enabled ? "On. Xiaomi's own Phone app records the calls, also after the phone restarts. " + AUTO_HINT(st)
+    : st.enabled ? "On. Xiaomi's own Phone app records the calls, also after the phone restarts. " + AUTO_HINT(st) +
+      (st.states[GOOGLE_DIALER] === REMOVED ? " Google Phone has been removed." : "")
     : st.supported ? "This phone supports it."
-    : "Not available on this phone: its ROM (an EU/EEA build) does not include Xiaomi's Phone app. Use the helper below.";
+    : "Not available on this phone: its system does not include Xiaomi's Phone app (EU/EEA ROMs and older models). Use the helper below.";
 }
 
 // The helper dies with adbd: on a reboot, and when USB debugging or Developer options is switched off.
 // The recorder only records by itself once this switch in the Phone app is on.
 const AUTO_STEP = "open the Phone app → Settings → Call recording and turn on automatic recording";
 const AUTO_HINT = (st) => st.autoRecord ? "Automatic recording is on." : "Automatic recording is OFF: " + AUTO_STEP + ".";
+
+// Google's apps can only be removed where permanent recording works and they are still there.
+// On a phone that is already switched, Turn on stays usable just to add that removal.
+function syncNative() {
+  const st = nativeSt;
+  const google = !!st && st.supported && [GOOGLE_DIALER, GOOGLE_CONTACTS].some((p) => st.states[p] === INSTALLED);
+  els.nativeRemove.disabled = !google;
+  if (!google) els.nativeRemove.checked = false;
+  els.nativeOn.disabled = !st || !st.supported || (st.enabled && !els.nativeRemove.checked);
+}
+els.nativeRemove.onchange = syncNative;
 
 const AFTER_RESTART = "It stops when the phone restarts or USB debugging is turned off. " +
   "When that happens: plug the phone in, open this page and click Connect. Recording starts again by itself.";
@@ -203,11 +218,13 @@ els.stop.onclick = async () => {
 };
 
 els.nativeOn.onclick = async () => {
+  const removeGoogle = els.nativeRemove.checked;
   if (!confirm("This makes Xiaomi's own Phone app the phone app of this phone; it has a built-in call recorder. " +
-    "Google Phone stays installed, and contacts and call history stay. You can undo it here later.\n\nContinue?")) return;
-  els.nativeOn.disabled = els.nativeOff.disabled = true;
+    (removeGoogle ? "Google Phone and Google Contacts are removed from the phone. " : "Google Phone stays installed. ") +
+    "Contacts and call history stay. You can undo it here later.\n\nContinue?")) return;
+  els.nativeOn.disabled = els.nativeOff.disabled = els.nativeRemove.disabled = true;
   try {
-    const st = await enableNative(shell, log);
+    const st = await enableNative(shell, log, { removeGoogle });
     // One recorder is enough; this also keeps the next connect from resuming the helper.
     if ((await daemonState(shell)) !== MISSING) log("helper: " + await stopDaemon(shell));
     showNative(st);
@@ -223,7 +240,7 @@ els.nativeOn.onclick = async () => {
 };
 
 els.nativeOff.onclick = async () => {
-  els.nativeOn.disabled = els.nativeOff.disabled = true;
+  els.nativeOn.disabled = els.nativeOff.disabled = els.nativeRemove.disabled = true;
   try {
     const st = await revertNative(shell, log);
     showNative(st);
